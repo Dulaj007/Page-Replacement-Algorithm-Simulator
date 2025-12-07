@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FIFO Page Replacement Simulator</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background-color: #1a1a1a;
+    color: #eee;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+  }
+  h1 { color: #00d8ff; }
+  .controls {
+    display: flex;
+    gap: 40px;
+    margin-bottom: 20px;
+  }
+  .control {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  input[type="range"] { width: 150px; }
+  input[type="text"] { width: 250px; padding: 5px; font-size: 16px; }
+  button {
+    padding: 10px 25px;
+    font-size: 16px;
+    margin-top: 10px;
+    border-radius: 8px;
+    border: none;
+    background-color: #00d8ff;
+    color: #111;
+    cursor: pointer;
+  }
+  button:hover { background-color: #00b0cc; }
+
+  .ram {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+    margin-bottom: 20px;
+  }
+  .shell {
+    width: 80px;
+    height: 80px;
+    border: 3px solid #00d8ff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 24px;
+    background-color: #111;
+    transition: background-color 0.3s;
+  }
+  .fault { background-color: #ff4444 !important; }
+
+  table {
+    border-collapse: collapse;
+    width: 90%;
+    max-width: 700px;
+    margin-top: 20px;
+  }
+  table th, table td {
+    border: 1px solid #555;
+    padding: 8px 12px;
+    text-align: center;
+  }
+  table th { background-color: #333; }
+  table td { background-color: #222; }
+</style>
+</head>
+<body>
+
+<h1>FIFO Page Replacement Simulator</h1>
+
+<div class="controls">
+  <div class="control">
+    <label for="framesRange">Number of Frames: <span id="framesValue">3</span></label>
+    <input type="range" id="framesRange" min="3" max="6" value="3">
+  </div>
+
+  <div class="control">
+    <label for="refInput">Reference String:</label>
+    <input type="text" id="refInput" placeholder="e.g., 1 2 3 4 1 2 5">
+  </div>
+
+  <div class="control">
+    <label for="requiredInput">Required Memory Items (optional):</label>
+    <input type="text" id="requiredInput" placeholder="e.g., 2 4 5">
+  </div>
+</div>
+
+<button id="startBtn">Start Simulation</button>
+
+<div class="ram" id="ramDisplay"></div>
+
+<table id="historyTable">
+  <thead>
+    <tr id="tableHeader">
+      <th>Step</th>
+      <th>Page</th>
+      <th>Frames</th>
+      <th>Page Fault</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<script>
+const framesRange = document.getElementById("framesRange");
+const framesValue = document.getElementById("framesValue");
+const refInput = document.getElementById("refInput");
+const requiredInput = document.getElementById("requiredInput");
+const ramDisplay = document.getElementById("ramDisplay");
+const startBtn = document.getElementById("startBtn");
+const historyTableBody = document.querySelector("#historyTable tbody");
+const tableHeader = document.getElementById("tableHeader");
+
+let framesCount = parseInt(framesRange.value);
+
+framesRange.addEventListener("input", () => {
+  framesCount = parseInt(framesRange.value);
+  framesValue.textContent = framesCount;
+  renderRamShells();
+});
+
+function renderRamShells() {
+  ramDisplay.innerHTML = "";
+  for (let i = 0; i < framesCount; i++) {
+    const shell = document.createElement("div");
+    shell.classList.add("shell");
+    shell.textContent = "-";
+    ramDisplay.appendChild(shell);
+  }
+}
+
+renderRamShells();
+
+startBtn.addEventListener("click", () => {
+  const refString = refInput.value.trim();
+  if (!refString) {
+    alert("Please enter a reference string!");
+    return;
+  }
+
+  const pages = refString.split(/\s+/).map(Number);
+  if (pages.some(isNaN)) {
+    alert("Reference string must contain only numbers separated by spaces!");
+    return;
+  }
+
+  let requiredPages = [];
+  const requiredStr = requiredInput.value.trim();
+  let showPageFault = false;
+
+  if (requiredStr) {
+    requiredPages = requiredStr.split(/\s+/).map(Number);
+    if (requiredPages.some(isNaN)) {
+      alert("Required memory items must contain only numbers separated by spaces!");
+      return;
+    }
+    showPageFault = true; // Show page fault column if required items are used
+  }
+
+  runSimulation(pages, requiredPages, showPageFault);
+});
+
+function runSimulation(referenceString, requiredPages, showPageFault) {
+  // Reset RAM and history table
+  renderRamShells();
+  historyTableBody.innerHTML = "";
+  
+  if (showPageFault) {
+    tableHeader.innerHTML = "<th>Step</th><th>Page</th><th>Frames</th><th>Page Fault</th>";
+  } else {
+    tableHeader.innerHTML = "<th>Step</th><th>Page</th><th>Frames</th>";
+  }
+
+  const frames = Array(framesCount).fill(null);
+  const queue = [];
+  let pageFaults = 0;
+  let step = 0;
+
+function nextStep() {
+    if (step >= referenceString.length) return;
+
+    const page = referenceString[step];
+    let fault = false;
+
+    const isPageInRAM = frames.includes(page);
+
+    // Load page only if it's not already in RAM
+    if (!isPageInRAM) {
+        // Check if this page is the last required page that completes all required pages
+        let willCompleteRequired = false;
+        if (showPageFault && requiredPages.includes(page)) {
+            const tempFrames = [...frames];
+            if (tempFrames.includes(null)) {
+                tempFrames[tempFrames.indexOf(null)] = page;
+            } else {
+                tempFrames[queue[0]] = page; // next FIFO replacement
+            }
+            const allRequiredAfterLoad = requiredPages.every(r => tempFrames.includes(r));
+            if (allRequiredAfterLoad) {
+                willCompleteRequired = true;
+            }
+        }
+
+        // Only mark as fault if it won't complete all required pages
+        fault = showPageFault && !willCompleteRequired;
+
+        pageFaults++;
+        if (frames.includes(null)) {
+            const emptyIndex = frames.indexOf(null);
+            frames[emptyIndex] = page;
+            queue.push(emptyIndex);
+        } else {
+            const removeIndex = queue.shift();
+            frames[removeIndex] = page;
+            queue.push(removeIndex);
+        }
+    } else {
+        fault = false; // page is already in RAM
+    }
+
+    // Update RAM display
+    const shells = ramDisplay.querySelectorAll(".shell");
+    shells.forEach((shell, idx) => {
+        shell.textContent = frames[idx] !== null ? frames[idx] : "-";
+        if (showPageFault) {
+            shell.classList.toggle("fault", fault && frames[idx] === page);
+        }
+    });
+
+    // Add row to table
+    const tr = document.createElement("tr");
+    const framesText = frames.map(f => f !== null ? f : "-").join(" | ");
+    if (showPageFault) {
+        tr.innerHTML = `<td>${step + 1}</td><td>${page}</td><td>${framesText}</td><td>${fault ? "YES" : "NO"}</td>`;
+    } else {
+        tr.innerHTML = `<td>${step + 1}</td><td>${page}</td><td>${framesText}</td>`;
+    }
+    historyTableBody.appendChild(tr);
+
+    step++;
+
+    // Stop simulation if all required pages are loaded
+    if (showPageFault) {
+        const allRequiredLoaded = requiredPages.every(r => frames.includes(r));
+        if (allRequiredLoaded) return;
+    }
+
+    setTimeout(nextStep, 1000);
+}
+
+  nextStep();
+}
+</script>
+
+</body>
+</html>
