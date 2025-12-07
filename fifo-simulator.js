@@ -1,5 +1,15 @@
 /**************************************
  * DOM Element References
+ * Description:
+ *   These variables store references to key HTML elements in the UI:
+ *     - framesRange: Slider input to select number of RAM frames
+ *     - framesValue: Display the current value of framesRange
+ *     - refInput: Text input for reference string (pages to access)
+ *     - requiredInput: Text input for required pages (special pages to track)
+ *     - ramDisplay: Container to visually show current RAM content
+ *     - startBtn: Button to start the FIFO simulation
+ *     - historyTableBody: Table body to log step-by-step simulation results
+ *     - tableHeader: Table header element to dynamically display columns
  **************************************/
 const framesRange = document.getElementById("framesRange");
 const framesValue = document.getElementById("framesValue");
@@ -12,15 +22,15 @@ const tableHeader = document.getElementById("tableHeader");
 
 /**************************************
  * Global Variables
+ * Description:
+ *   framesCount: Stores the current number of RAM frames selected by the user.
  **************************************/
 let framesCount = parseInt(framesRange.value); // Current number of frames
-
-
-
 
 /**************************************
  * Event Listeners
  **************************************/
+
 // Update frames count and re-render RAM shells when slider changes
 framesRange.addEventListener("input", () => {
   framesCount = parseInt(framesRange.value);
@@ -61,12 +71,11 @@ startBtn.addEventListener("click", () => {
   runSimulation(pages, requiredPages, showPageFault);
 });
 
-
-
-
 /**************************************
  * Function: renderRamShells
- * Description: Render empty RAM shells based on current frames count
+ * Description:
+ *   Renders empty RAM shells according to the current number of frames.
+ *   Each shell represents a memory slot and initially displays a dash ("-").
  **************************************/
 function renderRamShells() {
   ramDisplay.innerHTML = "";
@@ -78,99 +87,107 @@ function renderRamShells() {
   }
 }
 
-
-
-
 // Initial render of RAM shells
 renderRamShells();
 
 /**************************************
  * Function: runSimulation
- * Description: Execute FIFO page replacement simulation
+ * Description:
+ *   Executes the FIFO page replacement simulation.
+ *   Handles page faults and required page tracking.
+ *
  * Parameters:
  *   referenceString - array of page numbers to process
- *   requiredPages   - array of pages to check for completion
- *   showPageFault   - boolean indicating if page fault column should be displayed
+ *   requiredPagesInput - array of pages that must be loaded before simulation stops
+ *   showPageFault - boolean indicating whether to display the Page Fault column
  **************************************/
-function runSimulation(referenceString, requiredPages, showPageFault) {
-  // Reset RAM display and history table
-  renderRamShells();
-  historyTableBody.innerHTML = "";
+function runSimulation(referenceString, requiredPagesInput, showPageFault) {
+    // Reset RAM display and history table
+    renderRamShells();
+    historyTableBody.innerHTML = "";
 
-  // Update table header based on page fault tracking
-  tableHeader.innerHTML = showPageFault
-    ? "<th>Step</th><th>Page</th><th>Frames</th><th>Page Fault</th>"
-    : "<th>Step</th><th>Page</th><th>Frames</th>";
+    // Update table header dynamically
+    tableHeader.innerHTML = showPageFault
+        ? "<th>Step</th><th>Page</th><th>Frames</th><th>Page Fault</th>"
+        : "<th>Step</th><th>Page</th><th>Frames</th>";
 
-  const frames = Array(framesCount).fill(null); // Initialize empty frames
-  const queue = []; // FIFO queue to track frame replacement order
-  let step = 0; // Current step index in reference string
+    const frames = Array(framesCount).fill(null); // Initialize empty frames
+    const queue = []; // FIFO queue to track replacement order
+    let step = 0;
 
+    // Clone required pages array to remove pages as they are loaded
+    const requiredPages = [...requiredPagesInput];
 
+    /**************************************
+     * Function: nextStep
+     * Description:
+     *   Processes one page at a time in the reference string.
+     *   Updates RAM display, page fault status, and history table.
+     *   Stops simulation once all required pages are loaded.
+     **************************************/
+    function nextStep() {
+        if (step >= referenceString.length) return;
 
-  /**************************************
-   * Function: nextStep
-   * Description: Process one page at a time, update RAM, table, and handle page faults
-   **************************************/
-  function nextStep() {
-    if (step >= referenceString.length) return; // Stop if end of reference string reached
+        const page = referenceString[step];
+        let fault = false;
 
-    const page = referenceString[step];
-    let fault = false;
-    const isPageInRAM = frames.includes(page); // Check if page already exists in RAM
+        const isPageInRAM = frames.includes(page);
 
-    if (!isPageInRAM) {
-      // Determine if loading this page completes all required pages
-      let willCompleteRequired = false;
-      if (showPageFault && requiredPages.includes(page)) {
-        const tempFrames = [...frames];
-        if (tempFrames.includes(null)) {
-          tempFrames[tempFrames.indexOf(null)] = page;
-        } else {
-          tempFrames[queue[0]] = page; // Replace oldest frame using FIFO
+        if (!isPageInRAM) {
+            // Only mark a page fault if there are required pages to track
+            if (showPageFault && requiredPages.length > 0) {
+                fault = true;
+            }
+
+            // Insert page using FIFO algorithm
+            if (frames.includes(null)) {
+                const emptyIndex = frames.indexOf(null);
+                frames[emptyIndex] = page;
+                queue.push(emptyIndex);
+            } else {
+                const removeIndex = queue.shift();
+                frames[removeIndex] = page;
+                queue.push(removeIndex);
+            }
         }
-        willCompleteRequired = requiredPages.every(r => tempFrames.includes(r));
-      }
 
-      // Mark page fault only if it doesn't complete all required pages
-      fault = showPageFault && !willCompleteRequired;
+        // Remove pages from requiredPages if they are now loaded in RAM
+        if (requiredPages.length > 0) {
+            for (let i = requiredPages.length - 1; i >= 0; i--) {
+                if (frames.includes(requiredPages[i])) {
+                    requiredPages.splice(i, 1);
+                }
+            }
 
-      // Place page in RAM
-      if (frames.includes(null)) {
-        const emptyIndex = frames.indexOf(null);
-        frames[emptyIndex] = page;
-        queue.push(emptyIndex);
-      } else {
-        const removeIndex = queue.shift();
-        frames[removeIndex] = page;
-        queue.push(removeIndex);
-      }
+            // If all required pages are loaded, mark fault as NO
+            if (requiredPages.length === 0) fault = false;
+        }
+
+        // Update RAM display visually
+        ramDisplay.querySelectorAll(".shell").forEach((shell, idx) => {
+            shell.textContent = frames[idx] !== null ? frames[idx] : "-";
+            if (showPageFault) {
+                shell.classList.toggle("fault", fault && frames[idx] === page);
+            }
+        });
+
+        // Add step info to the history table
+        const framesText = frames.map(f => (f !== null ? f : "-")).join(" | ");
+        const rowHTML = showPageFault
+            ? `<td>${step + 1}</td><td>${page}</td><td>${framesText}</td><td>${fault ? "YES" : "NO"}</td>`
+            : `<td>${step + 1}</td><td>${page}</td><td>${framesText}</td>`;
+        historyTableBody.insertAdjacentHTML("beforeend", `<tr>${rowHTML}</tr>`);
+
+        step++;
+
+        // Stop simulation immediately if all required pages are loaded
+        if (requiredPages.length === 0 && showPageFault) return;
+
+        // Continue to next step after 1 second
+        setTimeout(nextStep, 1000);
     }
 
-    // Update RAM display
-    ramDisplay.querySelectorAll(".shell").forEach((shell, idx) => {
-      shell.textContent = frames[idx] !== null ? frames[idx] : "-";
-      if (showPageFault) {
-        shell.classList.toggle("fault", fault && frames[idx] === page);
-      }
-    });
 
-    // Add a row to the history table
-    const framesText = frames.map(f => (f !== null ? f : "-")).join(" | ");
-    const rowHTML = showPageFault
-      ? `<td>${step + 1}</td><td>${page}</td><td>${framesText}</td><td>${fault ? "YES" : "NO"}</td>`
-      : `<td>${step + 1}</td><td>${page}</td><td>${framesText}</td>`;
-    historyTableBody.insertAdjacentHTML("beforeend", `<tr>${rowHTML}</tr>`);
-
-    step++;
-
-    // Stop simulation if all required pages are loaded
-    if (showPageFault && requiredPages.every(r => frames.includes(r))) return;
-
-    // Continue to next step after 1 second
-    setTimeout(nextStep, 1000);
-  }
-
-  // Start simulation
-  nextStep();
+    // Start the first step of the simulation
+    nextStep();
 }
