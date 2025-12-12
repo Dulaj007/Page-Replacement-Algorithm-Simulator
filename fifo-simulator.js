@@ -53,6 +53,18 @@ startBtn.addEventListener("click", () => {
     return;
   }
 
+  // 1. Frame size must be 3–5
+  if (framesCount < 3 || framesCount > 5) {
+    alert("Frame size must be between 3 and 5!");
+    return;
+  }
+
+  // 2. Reference string must have fewer than 10 elements
+  if (pages.length > 10) {
+    alert("Reference string must have fewer than 10 elements!");
+    return;
+  }
+
   // Process optional required pages input
   let requiredPages = [];
   const requiredStr = requiredInput.value.trim();
